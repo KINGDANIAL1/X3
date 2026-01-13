@@ -2,20 +2,22 @@
 import os
 import tempfile
 import subprocess
-from telegram import Update
+from telegram import Update, Document
 from telegram.ext import (
-    Updater,
+    ApplicationBuilder,
     CommandHandler,
     MessageHandler,
-    Filters,
-    CallbackContext
+    ContextTypes,
+    filters
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAX_OUTPUT = 4000
 
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text(
+# ======================== الوظائف ========================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "🤖 بوت تنفيذ Python\n\n"
         "📌 أرسل كود Python مباشرة\n"
         "📌 أو أرسل ملف .py\n\n"
@@ -24,9 +26,9 @@ def start(update: Update, context: CallbackContext):
         "/clear → مسح الذاكرة"
     )
 
-def clear(update: Update, context: CallbackContext):
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    update.message.reply_text("🧹 تم مسح الذاكرة")
+    await update.message.reply_text("🧹 تم مسح الذاكرة")
 
 def run_code(code: str) -> str:
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
@@ -47,7 +49,7 @@ def run_code(code: str) -> str:
     finally:
         os.remove(path)
 
-def handle_text(update: Update, context: CallbackContext):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = update.message.text
     context.user_data["last_code"] = code
 
@@ -55,50 +57,51 @@ def handle_text(update: Update, context: CallbackContext):
     if len(output) > MAX_OUTPUT:
         output = output[:MAX_OUTPUT] + "\n... (تم القطع)"
 
-    update.message.reply_text(f"📤 النتيجة:\n{output}")
+    await update.message.reply_text(f"📤 النتيجة:\n{output}")
 
-def handle_file(update: Update, context: CallbackContext):
-    doc = update.message.document
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc: Document = update.message.document
     if not doc.file_name.endswith(".py"):
-        update.message.reply_text("❌ فقط ملفات .py")
+        await update.message.reply_text("❌ فقط ملفات .py")
         return
 
-    file = doc.get_file()
-    code = file.download_as_bytearray().decode()
+    file = await doc.get_file()
+    code = (await file.download_as_bytearray()).decode()
 
     context.user_data["last_code"] = code
     output = run_code(code)
-
     if len(output) > MAX_OUTPUT:
         output = output[:MAX_OUTPUT] + "\n... (تم القطع)"
 
-    update.message.reply_text(f"📤 النتيجة:\n{output}")
+    await update.message.reply_text(f"📤 النتيجة:\n{output}")
 
-def run_last(update: Update, context: CallbackContext):
+async def run_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = context.user_data.get("last_code")
     if not code:
-        update.message.reply_text("❌ لا يوجد كود محفوظ")
+        await update.message.reply_text("❌ لا يوجد كود محفوظ")
         return
 
     output = run_code(code)
-    update.message.reply_text(f"🔁 إعادة التنفيذ:\n{output}")
+    await update.message.reply_text(f"🔁 إعادة التنفيذ:\n{output}")
+
+# ======================== البداية ========================
 
 def main():
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN غير موجود")
         return
 
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("clear", clear))
-    dp.add_handler(CommandHandler("run", run_last))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
-    dp.add_handler(MessageHandler(Filters.document, handle_file))
+    # إضافة الأوامر والمعالجات
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(CommandHandler("run", run_last))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    updater.start_polling()
-    updater.idle()
+    # تشغيل البوت
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
