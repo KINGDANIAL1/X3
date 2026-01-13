@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
 import os
-import asyncio
 import tempfile
 import subprocess
-from telegram import Update, Document
+from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
+    Updater,
     CommandHandler,
     MessageHandler,
-    ContextTypes,
-    filters
+    Filters,
+    CallbackContext
 )
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAX_OUTPUT = 4000
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
         "🤖 بوت تنفيذ Python\n\n"
         "📌 أرسل كود Python مباشرة\n"
         "📌 أو أرسل ملف .py\n\n"
         "أوامر:\n"
-        "/run → تنفيذ آخر كود\n"
+        "/run → إعادة تنفيذ آخر كود\n"
         "/clear → مسح الذاكرة"
     )
 
-async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def clear(update: Update, context: CallbackContext):
     context.user_data.clear()
-    await update.message.reply_text("🧹 تم مسح الذاكرة")
+    update.message.reply_text("🧹 تم مسح الذاكرة")
 
-async def run_code(code: str) -> str:
+def run_code(code: str) -> str:
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
         f.write(code)
         path = f.name
@@ -44,57 +43,62 @@ async def run_code(code: str) -> str:
         output = (result.stdout or "") + (result.stderr or "")
         return output or "✅ تم التنفيذ بدون مخرجات"
     except subprocess.TimeoutExpired:
-        return "⏱️ انتهى الوقت"
+        return "⏱️ انتهى وقت التنفيذ"
     finally:
         os.remove(path)
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_text(update: Update, context: CallbackContext):
     code = update.message.text
     context.user_data["last_code"] = code
-    output = await run_code(code)
 
+    output = run_code(code)
     if len(output) > MAX_OUTPUT:
         output = output[:MAX_OUTPUT] + "\n... (تم القطع)"
 
-    await update.message.reply_text(f"📤 النتيجة:\n{output}")
+    update.message.reply_text(f"📤 النتيجة:\n{output}")
 
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc: Document = update.message.document
+def handle_file(update: Update, context: CallbackContext):
+    doc = update.message.document
     if not doc.file_name.endswith(".py"):
-        await update.message.reply_text("❌ فقط ملفات .py")
+        update.message.reply_text("❌ فقط ملفات .py")
         return
 
-    file = await doc.get_file()
-    code = await file.download_as_bytearray()
-    code = code.decode()
+    file = doc.get_file()
+    code = file.download_as_bytearray().decode()
 
     context.user_data["last_code"] = code
-    output = await run_code(code)
+    output = run_code(code)
 
     if len(output) > MAX_OUTPUT:
         output = output[:MAX_OUTPUT] + "\n... (تم القطع)"
 
-    await update.message.reply_text(f"📤 النتيجة:\n{output}")
+    update.message.reply_text(f"📤 النتيجة:\n{output}")
 
-async def run_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def run_last(update: Update, context: CallbackContext):
     code = context.user_data.get("last_code")
     if not code:
-        await update.message.reply_text("❌ لا يوجد كود محفوظ")
+        update.message.reply_text("❌ لا يوجد كود محفوظ")
         return
 
-    output = await run_code(code)
-    await update.message.reply_text(f"🔁 إعادة التنفيذ:\n{output}")
+    output = run_code(code)
+    update.message.reply_text(f"🔁 إعادة التنفيذ:\n{output}")
 
-async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+def main():
+    if not BOT_TOKEN:
+        print("❌ BOT_TOKEN غير موجود")
+        return
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("clear", clear))
-    app.add_handler(CommandHandler("run", run_last))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
 
-    await app.run_polling()
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("clear", clear))
+    dp.add_handler(CommandHandler("run", run_last))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
+    dp.add_handler(MessageHandler(Filters.document, handle_file))
+
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
