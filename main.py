@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MAX_OUTPUT = 4000
+MAX_OUTPUT = 40000
 
 # ======================== الوظائف ========================
 
