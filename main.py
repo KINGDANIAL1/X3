@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MAX_OUTPUT = 40000
+MAX_OUTPUT = 4000000
 CODE_TIMEOUT = 60  # ثواني لكل كود
 
 # ======================== تنفيذ الكود في Process ========================
